@@ -16,7 +16,7 @@ static bool parse_args(int argc, char **argv);
 
 static void flip_image(float *pixels, int xsz, int ysz);
 
-static const char *img_fname;
+static const char *img_fname, *img_suffix;
 static float cam_theta, cam_phi;
 
 static Texture *pano_tex;
@@ -62,6 +62,10 @@ bool app_init(int argc, char **argv)
 		return false;
 	}
 	printf("loaded image: %dx%d\n", pano_tex->get_width(), pano_tex->get_height());
+
+	if(!(img_suffix = strrchr(img_fname, '.'))) {
+		img_suffix = ".jpg";
+	}
 
 	// create cubemap
 	cube_size = pano_tex->get_height();
@@ -149,14 +153,15 @@ void render_cubemap()
 	viewmat[4].rotation_y(deg_to_rad(180));	// +Z
 
 	// this must coincide with the order of GL_TEXTURE_CUBE_MAP_* values
-	static const char *fname[] = {
-		"cubemap_px.jpg",
-		"cubemap_nx.jpg",
-		"cubemap_py.jpg",
-		"cubemap_ny.jpg",
-		"cubemap_pz.jpg",
-		"cubemap_nz.jpg"
+	static const char *fname_pattern[] = {
+		"cubemap_px%s",
+		"cubemap_nx%s",
+		"cubemap_py%s",
+		"cubemap_ny%s",
+		"cubemap_pz%s",
+		"cubemap_nz%s"
 	};
+	static char fname[64];
 
 	glMatrixMode(GL_PROJECTION);
 	glPushMatrix();
@@ -181,8 +186,9 @@ void render_cubemap()
 		glGetTexImage(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, GL_FLOAT, pixels);
 		//flip_image(pixels, cube_size, cube_size);
 
-		if(img_save_pixels(fname[i], pixels, cube_size, cube_size, IMG_FMT_RGBF) == -1) {
-			fprintf(stderr, "failed to save %dx%d image: %s\n", cube_size, cube_size, fname[i]);
+		sprintf(fname, fname_pattern[i], img_suffix);
+		if(img_save_pixels(fname, pixels, cube_size, cube_size, IMG_FMT_RGBF) == -1) {
+			fprintf(stderr, "failed to save %dx%d image: %s\n", cube_size, cube_size, fname);
 		}
 	}
 
