@@ -27,6 +27,16 @@ static unsigned int next_pow2(unsigned int x)
 	return x + 1;
 }
 
+int Texture::get_width() const
+{
+	return width;
+}
+
+int Texture::get_height() const
+{
+	return height;
+}
+
 bool Texture::load(const char *fname)
 {
 	img_pixmap img;

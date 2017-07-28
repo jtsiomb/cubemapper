@@ -14,9 +14,9 @@ static void motion(int x, int y);
 
 int main(int argc, char **argv)
 {
+	glutInitWindowSize(1024, 768);
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
-	glutInitWindowSize(1024, 768);
 	glutCreateWindow("cubemapper");
 
 	glutDisplayFunc(display);
@@ -47,6 +47,11 @@ void app_redisplay()
 void app_swap_buffers()
 {
 	glutSwapBuffers();
+}
+
+void app_resize(int x, int y)
+{
+	glutReshapeWindow(x, y);
 }
 
 static void display()

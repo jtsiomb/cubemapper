@@ -16,6 +16,8 @@ static void draw_scene_near();	// near scene: regular objects affected by parall
 static void draw_scene_inf();
 static bool parse_args(int argc, char **argv);
 
+static void flip_image(float *pixels, int xsz, int ysz);
+
 static const char *img_fname;
 static float cam_theta, cam_phi;
 
@@ -64,6 +66,7 @@ bool app_init(int argc, char **argv)
 	if(!pano_tex->load(img_fname)) {
 		return false;
 	}
+	printf("loaded image: %dx%d\n", pano_tex->get_width(), pano_tex->get_height());
 	return true;
 }
 
@@ -126,6 +129,8 @@ void render_cubemap()
 		draw_scene();
 
 		glReadPixels(0, 0, fbsize, fbsize, GL_RGB, GL_FLOAT, pixels);
+		flip_image(pixels, fbsize, fbsize);
+
 		if(img_save_pixels(fname[i], pixels, fbsize, fbsize, IMG_FMT_RGBF) == -1) {
 			fprintf(stderr, "failed to save %dx%d image: %s\n", fbsize, fbsize, fname[i]);
 			break;
@@ -172,10 +177,17 @@ void app_reshape(int x, int y)
 
 void app_keyboard(int key, bool press)
 {
+	int cubemap_size;
+
 	if(press) {
 		switch(key) {
 		case 27:
 			app_quit();
+			break;
+
+		case ' ':
+			cubemap_size = pano_tex->get_width() / 4;
+			app_resize(cubemap_size, cubemap_size);
 			break;
 
 		case 's':
@@ -240,4 +252,22 @@ static bool parse_args(int argc, char **argv)
 	}
 
 	return true;
+}
+
+static void flip_image(float *pixels, int xsz, int ysz)
+{
+	float *top_ptr = pixels;
+	float *bot_ptr = pixels + xsz * (ysz - 1) * 3;
+	float *line = new float[xsz * 3];
+	int scansz = xsz * 3 * sizeof(float);
+
+	for(int i=0; i<ysz / 2; i++) {
+		memcpy(line, top_ptr, scansz);
+		memcpy(top_ptr, bot_ptr, scansz);
+		memcpy(bot_ptr, line, scansz);
+		top_ptr += xsz * 3;
+		bot_ptr -= xsz * 3;
+	}
+
+	delete [] line;
 }

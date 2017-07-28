@@ -14,6 +14,9 @@ public:
 	Texture();
 	~Texture();
 
+	int get_width() const;
+	int get_height() const;
+
 	bool load(const char *fname);
 
 	const Mat4 &texture_matrix() const;

@@ -15,5 +15,6 @@ void app_mouse_motion(int x, int y);
 void app_quit();
 void app_redisplay();
 void app_swap_buffers();
+void app_resize(int x, int y);
 
 #endif	// APP_H_
