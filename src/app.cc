@@ -10,10 +10,8 @@
 #include "mesh.h"
 #include "meshgen.h"
 
-static void draw_scene();	// both near and infinite parts
-static void draw_scene_near();	// near scene: regular objects affected by parallax shift and translation
-// infinity scene: objects conceptually at infinity, not affected by parallax shift and translation
-static void draw_scene_inf();
+static void draw_equilateral();
+static void draw_cubemap();
 static bool parse_args(int argc, char **argv);
 
 static void flip_image(float *pixels, int xsz, int ysz);
@@ -25,6 +23,11 @@ static Texture *pano_tex;
 static Mesh *pano_mesh;
 
 static int win_width, win_height;
+static int show_cubemap;
+
+static unsigned int fbo;
+static unsigned int cube_tex;
+static int cube_size;
 
 
 bool app_init(int argc, char **argv)
@@ -41,15 +44,7 @@ bool app_init(int argc, char **argv)
 		return false;
 	}
 
-	glEnable(GL_CULL_FACE);
-
-	if(GLEW_ARB_framebuffer_sRGB) {
-		glGetError();	// discard previous errors
-		glEnable(GL_FRAMEBUFFER_SRGB);
-		if(glGetError() != GL_NO_ERROR) {
-			fprintf(stderr, "failed to enable sRGB framebuffer\n");
-		}
-	}
+	glEnable(GL_MULTISAMPLE);
 
 	Mesh::use_custom_sdr_attr = false;
 	pano_mesh = new Mesh;
@@ -67,6 +62,34 @@ bool app_init(int argc, char **argv)
 		return false;
 	}
 	printf("loaded image: %dx%d\n", pano_tex->get_width(), pano_tex->get_height());
+
+	// create cubemap
+	cube_size = pano_tex->get_height();
+	glGenTextures(1, &cube_tex);
+	glBindTexture(GL_TEXTURE_CUBE_MAP, cube_tex);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+	for(int i=0; i<6; i++) {
+		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, cube_size, cube_size,
+				0, GL_RGB, GL_FLOAT, 0);
+	}
+
+
+	// create fbo
+	glGenFramebuffers(1, &fbo);
+
+	// tex-gen for cubemap visualization
+	glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+	glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+	glTexGeni(GL_R, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+	float planes[][4] = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}};
+	glTexGenfv(GL_S, GL_OBJECT_PLANE, planes[0]);
+	glTexGenfv(GL_T, GL_OBJECT_PLANE, planes[1]);
+	glTexGenfv(GL_R, GL_OBJECT_PLANE, planes[2]);
 	return true;
 }
 
@@ -87,7 +110,22 @@ void app_draw()
 	glMatrixMode(GL_MODELVIEW);
 	glLoadMatrixf(view_matrix[0]);
 
-	draw_scene();
+	if(show_cubemap) {
+		draw_cubemap();
+
+		glColor3f(0, 0, 0);
+		app_print_text(10, 10, "cubemap");
+		glColor3f(0, 0.8, 1);
+		app_print_text(8, 13, "cubemap");
+	} else {
+		draw_equilateral();
+
+		glColor3f(0, 0, 0);
+		app_print_text(10, 10, "equilateral");
+		glColor3f(1, 0.8, 0);
+		app_print_text(8, 13, "equilateral");
+	}
+	glColor3f(1, 1, 1);
 
 	app_swap_buffers();
 	assert(glGetError() == GL_NO_ERROR);
@@ -95,62 +133,72 @@ void app_draw()
 
 void render_cubemap()
 {
-	int fbsize = win_width < win_height ? win_width : win_height;
-	float *pixels = new float[fbsize * fbsize * 3];
+	printf("rendering cubemap %dx%d\n", cube_size, cube_size);
 
-	glViewport(0, 0, fbsize, fbsize);
+	float *pixels = new float[cube_size * cube_size * 3];
+
+	glViewport(0, 0, cube_size, cube_size);
 
 	Mat4 viewmat[6];
 	viewmat[0].rotation_y(deg_to_rad(90));	// +X
-	viewmat[1].rotation_x(deg_to_rad(-90));	// +Y
-	viewmat[2].rotation_y(deg_to_rad(180));	// +Z
-	viewmat[3].rotation_y(deg_to_rad(-90));	// -X
-	viewmat[4].rotation_x(deg_to_rad(90));	// -Y
+	viewmat[1].rotation_y(deg_to_rad(-90));	// -X
+	viewmat[2].rotation_x(deg_to_rad(90));	// +Y
+	viewmat[2].rotate_y(deg_to_rad(180));
+	viewmat[3].rotation_x(deg_to_rad(-90));	// -Y
+	viewmat[3].rotate_y(deg_to_rad(180));
+	viewmat[4].rotation_y(deg_to_rad(180));	// +Z
 
+	// this must coincide with the order of GL_TEXTURE_CUBE_MAP_* values
 	static const char *fname[] = {
 		"cubemap_px.jpg",
-		"cubemap_py.jpg",
-		"cubemap_pz.jpg",
 		"cubemap_nx.jpg",
+		"cubemap_py.jpg",
 		"cubemap_ny.jpg",
+		"cubemap_pz.jpg",
 		"cubemap_nz.jpg"
 	};
 
 	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
 	glLoadIdentity();
-	gluPerspective(45, 1.0, 0.5, 500.0);
+	gluPerspective(90, 1.0, 0.5, 500.0);
+	glScalef(-1, -1, 1);
+
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
 	for(int i=0; i<6; i++) {
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+				GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, cube_tex, 0);
+
 		glClear(GL_COLOR_BUFFER_BIT);
 
 		glMatrixMode(GL_MODELVIEW);
 		glLoadMatrixf(viewmat[i][0]);
 
-		draw_scene();
+		draw_equilateral();
 
-		glReadPixels(0, 0, fbsize, fbsize, GL_RGB, GL_FLOAT, pixels);
-		flip_image(pixels, fbsize, fbsize);
+		//glReadPixels(0, 0, cube_size, cube_size, GL_RGB, GL_FLOAT, pixels);
+		glGetTexImage(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, GL_FLOAT, pixels);
+		//flip_image(pixels, cube_size, cube_size);
 
-		if(img_save_pixels(fname[i], pixels, fbsize, fbsize, IMG_FMT_RGBF) == -1) {
-			fprintf(stderr, "failed to save %dx%d image: %s\n", fbsize, fbsize, fname[i]);
-			break;
+		if(img_save_pixels(fname[i], pixels, cube_size, cube_size, IMG_FMT_RGBF) == -1) {
+			fprintf(stderr, "failed to save %dx%d image: %s\n", cube_size, cube_size, fname[i]);
 		}
 	}
 
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, win_width, win_height);
 
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+
 	delete [] pixels;
+
+	glBindTexture(GL_TEXTURE_CUBE_MAP, cube_tex);
+	glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
 }
 
-// both near and infinite parts (see below)
-static void draw_scene()
-{
-	draw_scene_inf();
-	draw_scene_near();
-}
-
-// infinity scene: objects conceptually at infinity, not affected by parallax shift and translation
-static void draw_scene_inf()
+static void draw_equilateral()
 {
 	pano_tex->bind();
 	glEnable(GL_TEXTURE_2D);
@@ -158,9 +206,19 @@ static void draw_scene_inf()
 	glDisable(GL_TEXTURE_2D);
 }
 
-// near scene: regular objects affected by parallax shift and translation
-static void draw_scene_near()
+static void draw_cubemap()
 {
+	glPushAttrib(GL_ENABLE_BIT);
+
+	glBindTexture(GL_TEXTURE_CUBE_MAP, cube_tex);
+	glEnable(GL_TEXTURE_CUBE_MAP);
+	glEnable(GL_TEXTURE_GEN_S);
+	glEnable(GL_TEXTURE_GEN_T);
+	glEnable(GL_TEXTURE_GEN_R);
+
+	pano_mesh->draw();
+
+	glPopAttrib();
 }
 
 void app_reshape(int x, int y)
@@ -177,8 +235,6 @@ void app_reshape(int x, int y)
 
 void app_keyboard(int key, bool press)
 {
-	int cubemap_size;
-
 	if(press) {
 		switch(key) {
 		case 27:
@@ -186,12 +242,11 @@ void app_keyboard(int key, bool press)
 			break;
 
 		case ' ':
-			cubemap_size = pano_tex->get_width() / 4;
-			app_resize(cubemap_size, cubemap_size);
+			show_cubemap = !show_cubemap;
+			app_redisplay();
 			break;
 
-		case 's':
-			printf("rendering cubemap\n");
+		case 'c':
 			render_cubemap();
 			break;
 		}

@@ -16,5 +16,6 @@ void app_quit();
 void app_redisplay();
 void app_swap_buffers();
 void app_resize(int x, int y);
+void app_print_text(int x, int y, const char *str);
 
 #endif	// APP_H_

@@ -51,26 +51,6 @@ bool Texture::load(const char *fname)
 	unsigned int pixfmt = img_glfmt(&img);
 	unsigned int pixtype = img_gltype(&img);
 
-	// if we have the sRGB extension, change the internal formats to sRGB
-	if(GLEW_EXT_texture_sRGB) {
-		switch(intfmt) {
-		case 3:
-		case GL_RGB:
-			intfmt = GL_SRGB_EXT;
-			break;
-		case 4:
-		case GL_RGBA:
-			intfmt = GL_SRGB_ALPHA;
-			break;
-		case 1:
-		case GL_LUMINANCE:
-			intfmt = GL_SLUMINANCE;
-			break;
-		default:
-			break;
-		}
-	}
-
 	width = img.width;
 	height = img.height;
 	tex_width = next_pow2(width);
