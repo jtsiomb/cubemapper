@@ -31,13 +31,11 @@ static void draw_equilateral();
 static void draw_cubemap();
 static bool parse_args(int argc, char **argv);
 
-static void flip_image(float *pixels, int xsz, int ysz);
-
 static const char *img_fname, *img_suffix;
 static float cam_theta, cam_phi;
 
-static Texture *pano_tex;
-static Mesh *pano_mesh;
+static Texture *tex;
+static Mesh *mesh;
 
 static int win_width, win_height;
 static int show_cubemap;
@@ -64,28 +62,28 @@ bool app_init(int argc, char **argv)
 	glEnable(GL_MULTISAMPLE);
 
 	Mesh::use_custom_sdr_attr = false;
-	pano_mesh = new Mesh;
-	gen_sphere(pano_mesh, 1.0, 80, 40);
-	pano_mesh->flip();
+	mesh = new Mesh;
+	gen_sphere(mesh, 1.0, 80, 40);
+	mesh->flip();
 	Mat4 xform;
 	xform.rotation_y(-M_PI / 2.0);	// rotate the sphere to face the "front" part of the image
-	pano_mesh->apply_xform(xform, xform);
+	mesh->apply_xform(xform, xform);
 
 	xform.scaling(-1, 1, 1);		// flip horizontal texcoord since we're inside the sphere
-	pano_mesh->texcoord_apply_xform(xform);
+	mesh->texcoord_apply_xform(xform);
 
-	pano_tex = new Texture;
-	if(!pano_tex->load(img_fname)) {
+	tex = new Texture;
+	if(!tex->load(img_fname)) {
 		return false;
 	}
-	printf("loaded image: %dx%d\n", pano_tex->get_width(), pano_tex->get_height());
+	printf("loaded image: %dx%d\n", tex->get_width(), tex->get_height());
 
 	if(!(img_suffix = strrchr(img_fname, '.'))) {
 		img_suffix = ".jpg";
 	}
 
 	// create cubemap
-	cube_size = pano_tex->get_height();
+	cube_size = tex->get_height();
 	glGenTextures(1, &cube_tex);
 	glBindTexture(GL_TEXTURE_CUBE_MAP, cube_tex);
 	glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -116,8 +114,8 @@ bool app_init(int argc, char **argv)
 
 void app_cleanup()
 {
-	delete pano_mesh;
-	delete pano_tex;
+	delete mesh;
+	delete tex;
 }
 
 void app_draw()
@@ -199,9 +197,7 @@ void render_cubemap()
 
 		draw_equilateral();
 
-		//glReadPixels(0, 0, cube_size, cube_size, GL_RGB, GL_FLOAT, pixels);
 		glGetTexImage(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, GL_FLOAT, pixels);
-		//flip_image(pixels, cube_size, cube_size);
 
 		sprintf(fname, fname_pattern[i], img_suffix);
 		if(img_save_pixels(fname, pixels, cube_size, cube_size, IMG_FMT_RGBF) == -1) {
@@ -223,9 +219,9 @@ void render_cubemap()
 
 static void draw_equilateral()
 {
-	pano_tex->bind();
+	tex->bind();
 	glEnable(GL_TEXTURE_2D);
-	pano_mesh->draw();
+	mesh->draw();
 	glDisable(GL_TEXTURE_2D);
 }
 
@@ -239,7 +235,7 @@ static void draw_cubemap()
 	glEnable(GL_TEXTURE_GEN_T);
 	glEnable(GL_TEXTURE_GEN_R);
 
-	pano_mesh->draw();
+	mesh->draw();
 
 	glPopAttrib();
 }
@@ -271,6 +267,8 @@ void app_keyboard(int key, bool press)
 
 		case 'c':
 			render_cubemap();
+			show_cubemap = 1;
+			app_redisplay();
 			break;
 		}
 	}
@@ -311,15 +309,8 @@ static bool parse_args(int argc, char **argv)
 {
 	for(int i=1; i<argc; i++) {
 		if(argv[i][0] == '-') {
-			/*
-			} else if(strcmp(argv[i], "-help") == 0) {
-				printf("usage: %s [options]\noptions:\n", argv[0]);
-				printf(" -help: print usage information and exit\n");
-				exit(0);
-			} else {*/
-				fprintf(stderr, "invalid option: %s\n", argv[i]);
-				return false;
-			//}
+			fprintf(stderr, "invalid option: %s\n", argv[i]);
+			return false;
 		} else {
 			if(img_fname) {
 				fprintf(stderr, "unexpected option: %s\n", argv[i]);
@@ -330,22 +321,4 @@ static bool parse_args(int argc, char **argv)
 	}
 
 	return true;
-}
-
-static void flip_image(float *pixels, int xsz, int ysz)
-{
-	float *top_ptr = pixels;
-	float *bot_ptr = pixels + xsz * (ysz - 1) * 3;
-	float *line = new float[xsz * 3];
-	int scansz = xsz * 3 * sizeof(float);
-
-	for(int i=0; i<ysz / 2; i++) {
-		memcpy(line, top_ptr, scansz);
-		memcpy(top_ptr, bot_ptr, scansz);
-		memcpy(bot_ptr, line, scansz);
-		top_ptr += xsz * 3;
-		bot_ptr -= xsz * 3;
-	}
-
-	delete [] line;
 }
