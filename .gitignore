@@ -1,0 +1,8 @@
+*.o
+*.d
+*.swp
+*.jpg
+*.png
+*.hdr
+*.ppm
+cubemapper
